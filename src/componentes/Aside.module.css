@@ -1,0 +1,21 @@
+/* ============================================================
+   Aside — CSS Module (thin container wrapper)
+   Delegates to DecosStatus, AudioStatus, VideoMatrix.
+   ============================================================ */
+
+.asideContainer {
+  margin-top: var(--space-sm, 8px);
+  width: 100%;
+  height: auto;
+  min-height: var(--aside-min-height, 550px);
+  padding: var(--space-sm, 8px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: var(--gap-sm, 8px);
+  background-color: var(--color-surface-aside, rgb(235, 235, 253));
+  border: var(--border-width-thin, 1px) solid var(--color-brand-primary, #ff3900);
+  font-family: var(--font-family-primary, "Roboto", sans-serif);
+  font-weight: var(--font-weight-normal, 400);
+  font-size: var(--font-size-sm, 14px);
+}

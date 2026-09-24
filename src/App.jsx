@@ -1,0 +1,283 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BrowserRouter as Router } from "react-router-dom";
+import { ProviderUser, estadoInicial } from "./contexto/Contexto";
+import { reconcileFavoritos } from "./data/canalesFavoritos";
+import { useBrokerState } from "./hooks/useBrokerState";
+import { deriveUiState, buildDiffsInfo, writeErrorMessage, rehydrateDecosFromIntent } from "./hooks/brokerClientCore";
+import {
+  setAppState,
+  setZonasFueraVideo,
+  setZonasFueraAudio,
+  setZonasFueraLink,
+} from "./api/arrangerApi";
+import Body from "./componentes/Body";
+import { useToast } from "./componentes/Toast";
+import ThemeProvider from "./contexto/ThemeProvider";
+import "./componentes/Toast.css";
+
+// Key legacy del estado app (v1, localStorage) para migrar al broker al arrancar.
+const ESTADO_APP_KEY = "estadoApp";
+
+const App = () => {
+  const toast = useToast();
+  const { snapshot, syncStatus, mode, connected, lastError, applyOptimistic, getOptimisticDomain, revertOptimistic } =
+    useBrokerState();
+
+  // Estado app-only local (decos, dispositivos, audio, favoritos, descripcionPreset).
+  // El server es dueño del estado app (appOnly.appState); la UI lo mantiene en
+  // memoria y persiste cambios con POST /api/app-state (merge parcial).
+  const [estado, setEstado] = useState(() => {
+    let initial = estadoInicial;
+    try {
+      const saved = localStorage.getItem(ESTADO_APP_KEY);
+      if (saved) initial = { ...estadoInicial, ...JSON.parse(saved), _version: 1 };
+    } catch {
+      // localStorage corrupto → estado inicial
+    }
+    // CF-3: reconciliar favoritos contra la allowlist de la grilla al
+    // hidratar — los canales obsoletos persistidos se eliminan.
+    return { ...initial, favoritos: reconcileFavoritos(initial.favoritos) };
+  });
+  const [tvrackState, setTvrackState] = useState({ video: "DTV1", audio: "DTV1", link: false });
+  const [zonasFueraState, setZonasFueraState] = useState({});
+  const [estadoLoaded, setEstadoLoaded] = useState(false);
+  const [errorDecos, setErrorDecos] = useState(false);
+
+  // ── Estado de matriz desde el broker (snapshot SSE + deltas) ──
+  // La UI de tvs/tvrack/zonas-fuera es derivada del snapshot; NO hay estado
+  // local de matriz ni polls (eliminados en PR 3). Escrituras → broker con await.
+  // WS4c (MG-1/MG-4): matrixGroups (desired server-authoritative) y el
+  // matrixModel servido viajan al contexto con PRECEDENCIA SERVER — el
+  // cliente los refleja read-only (nunca los persiste ni decide su valor).
+  const { tvs, tvrackState: brokerTvrack, zonasFueraState: brokerZonas, matrixGroups, matrixModel } = useMemo(
+    () => deriveUiState(snapshot),
+    [snapshot],
+  );
+
+  useEffect(() => {
+    if (!snapshot) return;
+    setTvrackState(brokerTvrack);
+    setZonasFueraState(brokerZonas);
+    // CD-5 (WS3): rehidratar decos/dispositivos desde la intención de canal del
+    // server con precedencia server — el canal DTV vive en el broker, el
+    // cliente lo recibe (nunca lo persiste como fuente de verdad).
+    setEstado((prev) => rehydrateDecosFromIntent(prev, snapshot));
+    setEstadoLoaded(true);
+    setErrorDecos(false);
+  }, [snapshot, brokerTvrack, brokerZonas]);
+
+  // tvs del broker se inyectan en `estado` (la UI lee estado.tvs).
+  const estadoConTvs = useMemo(() => ({ ...estado, tvs }), [estado, tvs]);
+
+  // ── Migración localStorage → broker al primer arranque (spec migracion-localstorage) ──
+  // Si el broker no tiene appState y existe estadoApp viejo, se sube (merge
+  // parcial) y se conserva localmente como backup. El estado de matriz NUNCA
+  // se migra desde localStorage: el broker lo reconstruye desde el Arranger.
+  useEffect(() => {
+    if (!snapshot || !estadoLoaded) return;
+    const serverHasApp = snapshot.appOnly && snapshot.appOnly.appState != null;
+    if (serverHasApp) return;
+    try {
+      const saved = localStorage.getItem(ESTADO_APP_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (!parsed || typeof parsed !== "object") return;
+      const patch = {};
+      for (const key of ["decos", "dispositivos", "favoritos", "audio", "descripcionPreset"]) {
+        if (parsed[key] !== undefined) {
+          // CF-3: no propagar favoritos obsoletos al broker en la migración
+          patch[key] = key === "favoritos" ? reconcileFavoritos(parsed[key]) : parsed[key];
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        setAppState(patch).catch(() => {});
+      }
+    } catch {
+      // localStorage corrupto — el broker arranca igual
+    }
+  }, [snapshot, estadoLoaded]);
+
+  // Persistencia app-only: localStorage (backup local) + broker (merge parcial).
+  const persistAppState = useCallback((patch) => {
+    setEstado((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        localStorage.setItem(ESTADO_APP_KEY, JSON.stringify(next));
+      } catch {
+        // localStorage lleno/indisponible — el broker es la fuente
+      }
+      return next;
+    });
+    setAppState(patch).catch((err) => {
+      console.warn("[app-state] No se pudo persistir al broker:", err?.message);
+    });
+  }, []);
+
+  const handleChangeEstadoDecos = useCallback(
+    (decos) => {
+      const dispositivos = { ...estado.dispositivos };
+      decos.forEach((deco) => {
+        if (dispositivos[deco.nombreDeco]) {
+          dispositivos[deco.nombreDeco] = {
+            ...dispositivos[deco.nombreDeco],
+            canalActual: deco.canalDeco,
+          };
+        }
+      });
+      persistAppState({ decos, dispositivos });
+    },
+    [estado.dispositivos, persistAppState],
+  );
+
+  const handleUpdateDispositivo = useCallback(
+    (id, updates) => {
+      const dispositivos = {
+        ...estado.dispositivos,
+        [id]: { ...estado.dispositivos[id], ...updates },
+      };
+      persistAppState({ dispositivos });
+    },
+    [estado.dispositivos, persistAppState],
+  );
+
+  const handleChangeEstadoAudio = useCallback((audio) => {
+    persistAppState({ audio });
+  }, [persistAppState]);
+
+  const handleChangeEstadoPreset = useCallback((descripcionPreset) => {
+    persistAppState({ descripcionPreset });
+  }, [persistAppState]);
+
+  // TVRACK: escrituras write-through confirmadas (POST /api/tvrack/*); la
+  // respuesta del broker ES el estado confirmado (video/audio/link). El
+  // optimistic update lo aplica el componente ANTES del await (ver
+  // MatrizVideo.handleTvrackBtn / handleLinkToggle); aquí solo sincronizamos
+  // el estado local con la respuesta del server.
+  const handleChangeTvrack = useCallback((newTvrack) => {
+    setTvrackState((prev) => ({
+      video: newTvrack.video ?? prev.video,
+      audio: newTvrack.audio ?? prev.audio,
+      link: newTvrack.link ?? prev.link,
+    }));
+  }, []);
+
+  // Zonas fuera: escrituras write-through confirmadas vía broker (con link,
+  // el server encadena video+audio). Sin joins directos al Arranger.
+  // Overlay optimista ANTES del POST: feedback visual inmediato (fix
+  // real-hardware A); el SSE event del broker confirma/corrige y lo limpia.
+  // Hotfix 5: si el POST responde error (429/5xx/network), REVERTIMOS el
+  // optimistic al overlay previo y avisamos al operador — el write fue
+  // rechazado ANTES de procesarse, la UI no debe mostrar el cambio (evidencia
+  // #908: 168 respuestas 429 con la UI mostrando cambios que nunca ocurrieron).
+  const handleZonasFueraChange = useCallback(
+    async (zoneId, type, deviceId) => {
+      try {
+        if (type === "video" || type === "audio") {
+          const zoneLink = zonasFueraState[zoneId]?.link;
+          const optimisticPatch =
+            type === "video"
+              ? { video: deviceId, ...(zoneLink ? { audio: deviceId } : {}) }
+              : { audio: deviceId, ...(zoneLink ? { video: deviceId } : {}) };
+          const prevOverlay = getOptimisticDomain("zonasFuera");
+          applyOptimistic("zonasFuera", { [zoneId]: optimisticPatch });
+          try {
+            const response =
+              type === "video"
+                ? await setZonasFueraVideo(zoneId, deviceId)
+                : await setZonasFueraAudio(zoneId, deviceId);
+            setZonasFueraState((prev) => ({ ...prev, [zoneId]: { ...prev[zoneId], ...response } }));
+            toast.success(`${deviceId} → ${type.toUpperCase()} ${zoneId}`);
+          } catch (err) {
+            revertOptimistic("zonasFuera", { [zoneId]: optimisticPatch }, prevOverlay);
+            toast.error(writeErrorMessage(err, `video/audio → ${zoneId}`));
+          }
+        } else if (type === "link") {
+          const linkPatch = { [zoneId]: { link: deviceId } };
+          const prevOverlay = getOptimisticDomain("zonasFuera");
+          applyOptimistic("zonasFuera", linkPatch);
+          try {
+            const response = await setZonasFueraLink(zoneId, deviceId);
+            setZonasFueraState((prev) => ({ ...prev, [zoneId]: { ...prev[zoneId], ...response } }));
+          } catch (err) {
+            revertOptimistic("zonasFuera", linkPatch, prevOverlay);
+            toast.error(writeErrorMessage(err, `link → ${zoneId}`));
+          }
+        }
+      } catch (err) {
+        console.error(`[zonas-fuera] Error en ${type} para ${zoneId}:`, err);
+      }
+    },
+    [toast, zonasFueraState, applyOptimistic, getOptimisticDomain, revertOptimistic],
+  );
+
+  const reintentarDecos = useCallback(() => {
+    // El broker reconecta solo (SSE/poll). Reintentar = limpiar el error y
+    // confiar en el snapshot; si no hay conexión, el hook sigue reintentando.
+    setErrorDecos(false);
+    if (snapshot) setEstadoLoaded(true);
+  }, [snapshot]);
+
+  // syncStatus estable (mismo objeto entre renders si status/lastSync no cambian).
+  const contextValue = useMemo(
+    () => ({
+      estado: estadoConTvs,
+      estadoLoaded,
+      errorDecos,
+      tvrackState,
+      zonasFueraState,
+      syncStatus,
+      syncMode: mode,
+      syncConnected: connected,
+      syncError: lastError,
+      handleChangeEstadoDecos,
+      handleChangeEstadoAudio,
+      handleChangeEstadoPreset,
+      handleUpdateDispositivo,
+      handleChangeTvrack,
+      handleZonasFueraChange,
+      reintentarDecos,
+      applyOptimistic,
+      getOptimisticDomain,
+      revertOptimistic,
+      matrixGroups,
+      matrixModel,
+      syncDiffs: buildDiffsInfo(snapshot),
+    }),
+    [
+      estadoConTvs,
+      estadoLoaded,
+      errorDecos,
+      tvrackState,
+      zonasFueraState,
+      syncStatus,
+      mode,
+      connected,
+      lastError,
+      snapshot,
+      matrixGroups,
+      matrixModel,
+      handleChangeEstadoDecos,
+      handleChangeEstadoAudio,
+      handleChangeEstadoPreset,
+      handleUpdateDispositivo,
+      handleChangeTvrack,
+      handleZonasFueraChange,
+      reintentarDecos,
+      applyOptimistic,
+      getOptimisticDomain,
+      revertOptimistic,
+    ],
+  );
+
+  return (
+    <Router>
+      <ThemeProvider>
+        <ProviderUser value={contextValue}>
+          <Body />
+        </ProviderUser>
+      </ThemeProvider>
+    </Router>
+  );
+};
+
+export default App;

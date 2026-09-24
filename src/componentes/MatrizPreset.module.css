@@ -1,0 +1,105 @@
+/* ============================================================
+   MatrizPreset — CSS Module (rediseño 25 jul 2026)
+   ============================================================ */
+
+.titulo {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+}
+
+.subtitle {
+  color: #8b949e;
+  font-size: 13px;
+  margin: 0 0 20px 0;
+}
+
+/* ── Grid de presets ── */
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 600px;
+}
+
+/* ── Card de preset ── */
+.card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s;
+}
+
+.cardUsed {
+  border-color: #238636;
+}
+
+.cardFree {
+  border-color: #30363d;
+  opacity: 0.75;
+}
+
+/* ── Header ── */
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cardNumber {
+  font-weight: 600;
+  font-size: 15px;
+  color: #c9d1d9;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.badgeUsed {
+  background: #238636;
+  color: #fff;
+}
+
+.badgeFree {
+  background: #21262d;
+  color: #8b949e;
+}
+
+/* ── Input ── */
+.cardInput {
+  padding: 8px 10px;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: var(--font-family-primary, "Roboto", sans-serif);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.cardInput:focus {
+  border-color: #58a6ff;
+}
+
+.cardInput::placeholder {
+  color: #484f58;
+}
+
+/* ── Actions ── */
+.cardActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* BTN-07: buttons fill the card action row inside the flex parent */
+.cardActions > * {
+  flex: 1 1 0;
+}

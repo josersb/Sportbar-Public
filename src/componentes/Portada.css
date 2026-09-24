@@ -1,0 +1,18 @@
+.portada-main-container {
+  margin-top: 10px;
+  width: 100%;
+  height: auto;
+  min-height: 550px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  background-color: #f5f6f9;
+  border: 1px solid #ff3900;
+  font-family: Roboto, sans-serif;
+  font-weight: 400;
+  font-size: 20px;
+}
+
+.portada-main-container img {
+  width: 100%;
+}

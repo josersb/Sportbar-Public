@@ -1,0 +1,54 @@
+/* ============================================================
+   Audio — CSS Module
+   ============================================================ */
+
+.titulo {
+  margin: 10px;
+  max-width: 500px;
+  border-bottom: 3px solid grey;
+}
+
+.formWrapper {
+  margin: 20px;
+  font-family: var(--font-family-primary, "Roboto", sans-serif);
+  font-weight: 400;
+  font-size: var(--font-size-md, 16px);
+}
+
+.formSelect {
+  width: 100px;
+  margin-left: 10px;
+  height: 24px;
+  font-size: var(--font-size-md, 16px);
+}
+
+.formInput {
+  width: 60px;
+  margin-left: 10px;
+  height: 24px;
+  font-size: var(--font-size-md, 16px);
+}
+
+.selectZona {
+  margin-bottom: 15px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: start;
+}
+
+.selectElementos {
+  width: 70%;
+  margin-bottom: 40px;
+  height: 40px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  border-bottom: 1px solid gray;
+}
+
+.formSelect:focus-visible,
+.formInput:focus-visible {
+  outline: 3px solid var(--color-brand-primary, #ff3900);
+  outline-offset: 2px;
+}
