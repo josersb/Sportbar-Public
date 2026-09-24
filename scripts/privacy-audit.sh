@@ -26,10 +26,12 @@ cd "$ROOT" || exit 1
 FAIL=0
 HITS=""
 
-check() { # check <descripcion> <comando-grep...>
+check() { # check <descripcion> <patron>
   local label="$1"; shift
   local out
-  out=$(git grep -I -n -E "$1" -- . 2>/dev/null)
+  # Auto-exclusión: este script documenta los patrones prohibidos y por eso los
+  # contiene. También se excluye .github (workflows pueden citar patrones).
+  out=$(git grep -I -n -E "$1" -- . ":(exclude)scripts/privacy-audit.sh" ":(exclude).github" 2>/dev/null)
   if [ -n "$out" ]; then
     FAIL=1
     HITS+="--- $label ---"$'\n'"$out"$'\n'
@@ -54,7 +56,7 @@ check "referencia-instalacion"    "referencia-instalacion"
 #      NO filtrar por línea completa: una línea que contenga soporte@ + otro
 #      contacto ocultaría el contacto prohibido. Se remueve SOLO el match
 #      permitido y lo que queda es fuga.
-CONTACT_HITS=$(git grep -I -n -E "[a-z0-9._-]+@wetechar\.com" -- . 2>/dev/null \
+CONTACT_HITS=$(git grep -I -n -E "[a-z0-9._-]+@wetechar\.com" -- . ":(exclude)scripts/privacy-audit.sh" ":(exclude).github" 2>/dev/null \
   | sed 's/soporte@wetechar\.com//g' \
   | grep -E "@wetechar\.com" || true)
 if [ -n "$CONTACT_HITS" ]; then
